@@ -1,7 +1,7 @@
 ---
-title: "Untitled"
-author: "Christina Macholan"
-date: "4/9/2017"
+title: "Team Checkpoint 1"
+subtitle: "Forest Cover Type Prediction"
+author: "Dong Bing, Richard Gunawarden, Kent Merdes, Christina Macholan, Tyler Wintermeyer"
 output: pdf_document
 ---
 
@@ -9,6 +9,40 @@ output: pdf_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r include=FALSE}
 
+Questions for the group:
+
+* Should we sample? 581,012 observations
+
+```{r include=FALSE, results=FALSE}
+# load libraries used for the analysis
+covtype <- read.csv("covtype.data", sep = ",", header = FALSE)
+summary(covtype)
+
+# this is buggy but I at least can get the variable names quickly
+key <- read.delim("forestcover_key.txt") 
+
+# set column names from key
+covtype.names <- row.names(key)
+covtype.names.complete <- c() 
+
+for (i in 1:ncol(covtype)) {
+    if (i <= 10) {
+        covtype.names.complete[i] <- covtype.names[i]
+    }
+    else if (i > 10 & i <= 14) {
+        covtype.names.complete[i] <- paste0("Wilderness_Area",i-10) 
+    }
+    else if (i > 14 & i <= 54) {
+        covtype.names.complete[i] <- paste0("Soil_Type",i-14)
+    }
+    else if (i == 55) {
+        covtype.names.complete[i] <- "Cover_Type"
+    }
+}
+colnames(covtype) <- covtype.names.complete
+
+# set variables as factors for soil type, wilderness area, and forest cover
+covtype[,10:55] <- lapply(covtype[,10:55], factor)
+summary(covtype)
 ```
