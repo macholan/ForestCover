@@ -1,20 +1,70 @@
 ---
-title: "Team Checkpoint 1"
-subtitle: "Forest Cover Type Prediction"
+title: "Predicting Forest Cover Type"
+subtitle: "Team Checkpoint 1"
 author: "Dong Bing, Richard Gunawarden, Kent Merdes, Christina Macholan, Tyler Wintermeyer"
 output: pdf_document
+bibliography: bibliography.bib
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+``` {r libraries, include=FALSE}
+library(lattice)
+```
 
-Questions for the group:
+# 1. Introduction
 
-* Should we sample? 581,012 observations
+Four wilderness areas: Rawah, Neota, Comanche Peak, Cache la Poudre.
 
-```{r include=FALSE, results=FALSE}
+![Map of wilderness areas included in study](Fig-1-Study-area-location-map.png)
+
+# 2. The Modeling Problem
+
+Our aim is to correctly classify the type of forest cover for a particular region based on 
+
+# 3. The Data
+
+581,012 records
+55 variables
+
+
+**Variable Description** | **Type & Measurement**
+-----------------------------------------------|--------------------------------
+Elevation | numeric in meters | 
+Aspect | numeric in degrees azimuth | 
+Slope | numeric in degrees | 
+Horizontal distance to nearest surce water features | numeric in meters
+Vertical distance to nearest surce water features | numeric in meters
+Horizontal distance to nearest roadway | numeric in meters
+Hillshade index at 9am during summer solstice | numeric as index (0 to 255)
+Hillshade index at Noon during summer solstice | numeric as index (0 to 255)
+Hillshade index at 3pm during summer solstice | numeric as index (0 to 255) 
+Horizontal distance to nearest wildfire ignition points | numeric in meters
+Wilderness Areas (4 areas) | binary for each area (0 or 1)
+-    *1 - Rawah* |
+-    *2 - Neota* |
+-    *3 - Comanche Peak* |
+-    *4 - Cache la Poudre* |
+Soil Type  (40 types) | binary for each type (0 or 1)
+    - *See Appendix A for details* |
+Forest Cover Type  (7 types) | integer for each type (0 or 1)
+-    *1 - Spruce/Fir* |
+-    *2 - Lodgepole Pine* | 
+-    *3 - Ponderosa Pine* | 
+-    *4 - Cottonwood/Willow* | 
+-    *5 - Aspen* | 
+-    *6 - Douglas-fir* | 
+-    *7 - Krummholz* | 
+
+
+```{r datastep, include=FALSE, results=FALSE}
+
+#########################
+## Load and clean data ##
+#########################
+
 # load libraries used for the analysis
 covtype <- read.csv("covtype.data", sep = ",", header = FALSE)
 summary(covtype)
@@ -40,9 +90,64 @@ for (i in 1:ncol(covtype)) {
         covtype.names.complete[i] <- "Cover_Type"
     }
 }
+
 colnames(covtype) <- covtype.names.complete
+
+
+# assign names for forest cover types
+
+covtype$Cover_Type <- ifelse(covtype$Cover_Type == 1, "Spruce/Fir",
+                             ifelse(covtype$Cover_Type == 2, "Lodgepole Pine",
+                                    ifelse(covtype$Cover_Type == 3, "Ponderosa Pine",
+                                           ifelse(covtype$Cover_Type == 4, "Cottonwood/Willow",
+                                                  ifelse(covtype$Cover_Type == 5, "Aspen",
+                                                         ifelse(covtype$Cover_Type == 6, "Douglas-fir",
+                                                                ifelse(covtype$Cover_Type == 7, "Krummholz",NA)))))))
+
 
 # set variables as factors for soil type, wilderness area, and forest cover
 covtype[,10:55] <- lapply(covtype[,10:55], factor)
 summary(covtype)
+```
+
+``` {r trainingtest, include=FALSE, results=FALSE}
+# create training and test sets of data
+
+#covtype.training <- 
+#covtype.test <- 
+
+````
+
+
+# 4. Exploratory Data Analysis (EDA)
+
+## Traditional EDA
+
+
+``` {r forestcoverplot, include=FALSE, results=TRUE}
+# frequency of forest cover types
+barchart(covtype$Cover_Type[order(covtype$Cover_Type)], data = covtype, col = "grey", xlab = "Frequency")
+```
+
+## Model-Based EDA
+
+# 5. Predictive Modeling: Methods and Results
+
+## Train / Test Data
+
+## Individual Model A
+
+## Individual Model B
+
+# 6. Comparison of Results
+
+# 7. Conclusions
+
+# 8. Bibliography
+
+# 9. Appendices
+
+
+``` {r }
+densityplot(~covtype$Elevation|covtype$Cover_Type, include=FALSE, results=FALSE)
 ```
