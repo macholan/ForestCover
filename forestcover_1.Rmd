@@ -3,7 +3,9 @@ title: "Predicting Forest Cover Type"
 subtitle: "Team Checkpoint 1"
 author: "Dong Bing, Richard Gunawarden, Kent Merdes, Christina Macholan, Tyler Wintermeyer"
 output: pdf_document
-bibliography: bibliography.bib
+number_section: yes
+fontsize: 9pt
+fig_caption: yes
 ---
 
 ```{r setup, include=FALSE}
@@ -12,17 +14,40 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ``` {r libraries, include=FALSE}
 library(lattice)
+library(RColorBrewer)
+library(latticeExtra)
+library(corrplot)
+library(rpart)
+library(gridExtra)
+library(ascii)
+library(rpart.plot)
+library(mclust)
+library(ggfortify)
+library(rgl)
+library(mclust)
+library(cluster)
+library(ROCR)
+library(caret)
+library(e1071)
 ```
 
 # 1. Introduction
 
-Four wilderness areas: Rawah, Neota, Comanche Peak, Cache la Poudre.
+- Provide an overview and general statement of the problem.
+- Provide a general discussion of how you have approached the problem and highlight some of
+the interesting results.
 
-![Map of wilderness areas included in study](Fig-1-Study-area-location-map.png)
+
+According to Blackard and Dean's original paper, "forest cover type data is either directly recorded by field personnel or estimated from remotely sensed data" [see @blackarddean, p. 132]. 
+
+Four wilderness areas in Roosevelt National Forest: Rawah, Neota, Comanche Peak, Cache la Poudre.
+
+
+![Map of wilderness areas included in study from Blackard and Dean's original paper](Fig-1-Study-area-location-map.png)
 
 # 2. The Modeling Problem
 
-Our aim is to correctly classify the type of forest cover for a particular region based on 
+Our aim is to build a multiclass calssification model that can predict the forest cover type for a 30 x 30 meter parcel of land. To do so, we will use data obtained from the US Forest Service (USFS) Region 2 Resource Information System (RIS) which contains measured attributes for over half a million parcels of land. These attributes include wilderness area type, soil type, topographical features, and the parcel's orientation to water, roadways, and wildfire-prone areas.
 
 # 3. The Data
 
@@ -106,15 +131,32 @@ covtype$Cover_Type <- ifelse(covtype$Cover_Type == 1, "Spruce/Fir",
 
 
 # set variables as factors for soil type, wilderness area, and forest cover
-covtype[,10:55] <- lapply(covtype[,10:55], factor)
+covtype[,11:55] <- lapply(covtype[,11:55], factor)
 summary(covtype)
 ```
 
 ``` {r trainingtest, include=FALSE, results=FALSE}
-# create training and test sets of data
+# create training, test, and validation sets of data
+# set sample size for training, test, and validation
+fractionTraining   <- 0.50
+fractionValidation <- 0.25
+fractionTest       <- 0.25
 
-#covtype.training <- 
-#covtype.test <- 
+# compute sample sizes
+sampleSizeTraining   <- floor(fractionTraining   * nrow(covtype))
+sampleSizeValidation <- floor(fractionValidation * nrow(covtype))
+sampleSizeTest       <- floor(fractionTest       * nrow(covtype))
+
+# set the indeces for the training, validation, and sample sets
+indicesTraining    <- sort(sample(seq_len(nrow(covtype)), size=sampleSizeTraining))
+indicesNotTraining <- setdiff(seq_len(nrow(covtype)), indicesTraining)
+indicesValidation  <- sort(sample(indicesNotTraining, size=sampleSizeValidation))
+indicesTest        <- setdiff(indicesNotTraining, indicesValidation)
+
+# create the three dataframes for training, validation, and test
+covtype.training   <- covtype[indicesTraining, ]
+covtype.validation <- covtype[indicesValidation, ]
+covtype.test       <- covtype[indicesTest, ]
 
 ````
 
@@ -124,12 +166,82 @@ summary(covtype)
 ## Traditional EDA
 
 
-``` {r forestcoverplot, include=FALSE, results=TRUE}
+``` {r forestcoverbarplot, include=FALSE, results=TRUE}
 # frequency of forest cover types
-barchart(covtype$Cover_Type[order(covtype$Cover_Type)], data = covtype, col = "grey", xlab = "Frequency")
+barchart(covtype$Cover_Type[order(covtype$Cover_Type)], data = covtype, 
+         col = "grey", xlab = "Frequency")
 ```
 
+
+
+### Figure 3: Correlation plot of numeric variables
+
+```{r correlations, echo=FALSE, fig.width = 3, fig.height = 2.8, fig.align = "center"}
+# correlation plot for numeric variables
+corrplot(cor(covtype.training[,1:10]), 
+         method = "color", tl.col = "black", tl.cex = 0.5, cl.cex = 0.5)
+```
+
+
 ## Model-Based EDA
+
+Model-based exploratory data analysis allows us to glean additional information about the relationships between our predictors and the response variable from naive models applied to the training dataset. In particular, tree-based classification can reveal any possible interaction effects that are not initially apparent from univariate and bivariate exploratory data analysis.
+
+### Tree-based Classification Model
+
+
+```{r rpartmodel, echo=FALSE, include = FALSE}
+treefit <- rpart(Cover_Type ~ ., method = "class", data = covtype.training)
+```
+
+```{r rpartsummary, echo=FALSE, include = FALSE}
+printcp(treefit) # display the results 
+plotcp(treefit) # visualize cross-validation results 
+summary(treefit) # detailed summary of splits
+predictions <- round(predict(treefit),0)
+predictions.vector <- ifelse(predictions[,1] == 1, "Spruce/Fir", 
+                             ifelse(predictions[,2] == 1, "Lodgepole Pine", 
+                                    ifelse(predictions[,3] == 1, "Ponderosa Pine",
+                                           ifelse(predictions[,4] == 1, "Cottonwood/Willow",
+                                                  ifelse(predictions[,5] == 1, "Aspen",
+                                                         ifelse(predictions[,6] == 1, "Douglas-fir",
+                                                                ifelse(predictions[,7] == 1, "Krummholz", NA)))))))
+treefitCM <- confusionMatrix(data = predictions.vector, reference = covtype.training$Cover_Type)
+treefitCM$overall["Accuracy"]
+```
+
+```{r rpartplotvarimpt, echo = FALSE, display = TRUE, fig.height = 3, fig.width = 4, fig.cap = 'Classification Tree Variable Importance Plot', fig.align="center"}
+barplot(treefit$variable.importance[order(treefit$variable.importance)], 
+        cex.names = 0.5, horiz = TRUE, cex.axis = 0.5, las=1)
+```
+
+#### Figure 6: Classification tree 
+
+```{r rpartplot, echo = FALSE, display = TRUE, fig.height = 4.3, fig.aligh = "center"}
+rpart.plot(treefit, uniform=TRUE, extra=104, main="", cex = 0.7)
+```
+  
+
+## K-means Clustering Placeholder
+
+```{r kmeans, echo=FALSE, include = FALSE}
+#comp <- data.frame(pcafit$x[,1:6])
+#kmeansfit1 <- kmeans(wine.norm[,2:14], 3)
+#kmeansfit2 <- kmeans(comp[,1:6], 3)
+```
+
+
+\pagebreak
+
+# Next Steps for our Paper
+
+* Reach final agreement on sampling approach (i.e. sample randomly across the full dataset vs. sample randomly within each forest cover type category)
+* Begin building models using Neural Networks and SVMs
+* Figure out how to properly do citations in R Markdown
+* Continue refining introduction to align with results from the modeling process
+* Begin writing for additional sections of the paper
+
+\pagebreak
 
 # 5. Predictive Modeling: Methods and Results
 
@@ -143,7 +255,11 @@ barchart(covtype$Cover_Type[order(covtype$Cover_Type)], data = covtype, col = "g
 
 # 7. Conclusions
 
+\pagebreak
+
 # 8. Bibliography
+
+\pagebreak
 
 # 9. Appendices
 
