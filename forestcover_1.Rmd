@@ -30,6 +30,17 @@ library(cluster)
 library(ROCR)
 library(caret)
 library(e1071)
+library(MASS)
+```
+
+```{r theme, echo=FALSE}
+# Set lattice plot theme
+mytheme <- standard.theme("png", color=FALSE)
+mytheme$fontsize$text = 6
+mytheme$par.main.text$cex = 0.8
+mytheme$plot.polygon$col <- "#0b5394"
+mytheme$layout.heights$top.padding = 0.8
+mytheme$layout.heights$main.key.padding = 0.3
 ```
 
 # 1. Introduction
@@ -46,11 +57,11 @@ Our aim is to build a multiclass calssification model that can predict the fores
 
 # 3. The Data
 
-The data used for our study comes from a 1998 study by Blackard and Dean in which US Forest Service (USFS) Region 2 Resource Information System (RIS) data and US Geological Survey (USGS) were compiled for 581,012 parcels of land. Each parcel corresponds with a 30 x 30 meter area in one of the following four regions of the Roosevelt National Forest in Colorado: Rawah, Neota, Comanche Peak, Cache la Poudre. These regions are mapped out in Figure 1.
+The data used for our study comes from a 1998 study by Blackard and Dean in which US Forest Service (USFS) Region 2 Resource Information System (RIS) data and US Geological Survey (USGS) were compiled for 581,012 parcels of land. Each parcel corresponds with a 30 x 30 meter area in one of the following four regions of the Roosevelt National Forest in Colorado: Rawah, Neota, Comanche Peak, Cache la Poudre. These regions are mapped out in Figure 1. 
 
 ![Map of wilderness areas included in study from Blackard and Dean's original paper](Fig-1-Study-area-location-map.png)
 
-For each parcel of land, the 13 variables listed in Table 1 were provided for each 30 x 30 meter land parcel (equivalent to one observation in the dataset). For prediction purposes, Forest Cover Type will be used as the dependent variable, and combinations of some or all of the remaining variables as the predictor variables.
+The 13 variables listed in Table 1 were provided for each 30 x 30 meter land parcel (equivalent to one observation in the dataset). For prediction purposes, Forest Cover Type will be used as the dependent variable, and combinations of some or all of the remaining variables as the predictor variables.
 
 ### Table 1: Description of variables
 
@@ -84,7 +95,8 @@ Forest Cover Type  (7 types)                   | integer for each type (0 or 1)
 
 ```{r datastep, include=FALSE, results=FALSE}
 # load the full dataset
-covtype <- read.csv("covtype.data", sep = ",", header = FALSE)
+covtype.raw <- read.csv("covtype.data", sep = ",", header = FALSE)
+covtype <- covtype.raw
 summary(covtype)
 
 # load the variable "key" - this is buggy but I at least can get the variable names quickly
@@ -119,9 +131,29 @@ covtype$Cover_Type <- ifelse(covtype$Cover_Type == 1, "Spruce/Fir",
                                                          ifelse(covtype$Cover_Type == 6, "Douglas-fir",
                                                                 ifelse(covtype$Cover_Type == 7, "Krummholz",NA)))))))
 # set numerical variables as factors for soil type, wilderness area, and forest cover
-covtype[,11:55] <- lapply(covtype[,11:55], factor)
+covtype$Cover_Type <- as.factor(covtype$Cover_Type)
+
 summary(covtype)
+
+# aggregate soil and area variables for easier EDA
+
+covtype$Wilderness_Area_Agg <- factor(apply(covtype[,c(which(colnames(covtype)=="Wilderness_Area1"):which(colnames(covtype)=="Wilderness_Area4"))], 1, function(x) which(x == 1)), labels = colnames(covtype[,c(which(colnames(covtype)=="Wilderness_Area1"):which(colnames(covtype)=="Wilderness_Area4"))]))
+
+covtype$Soil_Type_Agg <- factor(apply(covtype[,c(which(colnames(covtype)=="Soil_Type1"):which(colnames(covtype)=="Soil_Type40"))], 1, function(x) which(x == 1)), labels = colnames(covtype[,c(which(colnames(covtype)=="Soil_Type1"):which(colnames(covtype)=="Soil_Type40"))]))
+
+
+# transform skewed variables
+covtype$sqrt_Slope <- sqrt(covtype$Slope)
+covtype$sqrt_Horizontal_Distance_To_Hydrology <- sqrt(covtype$Horizontal_Distance_To_Hydrology)
+covtype$sqrt_Horizontal_Distance_To_Fire_Points <- sqrt(covtype$Horizontal_Distance_To_Fire_Points)
+covtype$sqrd_Hillshade_9am <- (covtype$Hillshade_9am)^3
+covtype$sqrd_Hillshade_Noon <- (covtype$Hillshade_Noon)^3
+
 ```
+
+To check the data quality, we first reviewed summary statistical measurements for each variable. None of the variables have missing values, and the range of values for each metric seems reasonable (no unexpected negative or zero-value measurements). *[confirm that the latter half of this statement is true by using boxplots]*
+
+To check for possible outliers, we created boxplots of each variable broken out by forest cover class as shown in [Figure #]. Each of the variables has a few outliers that fall outside of 1.5 IQR of the lower and upper quartiles for one or more of the seven forest cover type classes (shown as points in the plots). However, all values still appear to be within a reasonable enough range to assume that none of the outliers are due to systemic measurement errors, human error, or other data quality issues. *[confirm that this statement is true by using boxplots]*
 
 ``` {r trainingtest, include=FALSE, results=FALSE}
 # create training, test, and validation sets of data
@@ -152,22 +184,44 @@ covtype.test       <- covtype[indicesTest, ]
 
 ## Traditional EDA
 
+```{r boxplots, echo=FALSE, display = TRUE, fig.cap = "Boxplots of numeric variables by Forest Cover Type", fig.width = 6.5, fig.height = 9, fig.aligh = "center"}
+layout(matrix(1:15,5,3,byrow = TRUE), widths = c(rep(.5,15)), heights = c(rep(1.5,15)))
+par(oma = c(0,0,0,0), mar = c(2.5,8,2.5,2.5))
+for (i in c(1:10,58:62)) {
+    boxplot(covtype[,i] ~ Cover_Type, data = covtype, axes = FALSE, border = TRUE, horizontal = TRUE)
+    par(cex.main = 0.9, cex.axis = 0.8)
+    title(colnames(covtype)[i], line = 0.8)
+    axis(2, las=1, at = 1:7, labels = levels(covtype$Cover_Type))
+}
+```
+
 ``` {r forestcoverbarplot, include=FALSE, results=TRUE}
 # frequency of forest cover types
-barchart(covtype$Cover_Type[order(covtype$Cover_Type)], data = covtype, 
-         col = "grey", xlab = "Frequency")
+barchart(covtype$Cover_Type,  col = "grey", xlab = "Frequency")
+```
+
+```{r correlations, echo=FALSE, fig.width = 3, fig.height = 2.8, fig.cap = "Correlations for Numeric and Binary Variables", fig.align = "center"}
+# correlation plot for nummeric variables
+corrplot(cor(covtype.training[,c(1:10)]),  method = "color", tl.col = "black", 
+         tl.cex = 0.5, cl.cex = 0.5)
 ```
 
 
-
-### Figure 3: Correlation plot of numeric variables
-
-```{r correlations, echo=FALSE, fig.width = 3, fig.height = 2.8, fig.align = "center"}
-# correlation plot for numeric variables
-corrplot(cor(covtype.training[,1:10]), 
-         method = "color", tl.col = "black", tl.cex = 0.5, cl.cex = 0.5)
+```{r soildotplot, echo=FALSE, display = TRUE, fig.caption="Proportion of Wilderness Area", fig.align="center"}
+soil.table <- table(covtype$Cover_Type, covtype$Soil_Type_Agg)
+soil.table.freq <- prop.table(soil.table, 2)
+dotplot(soil.table.freq, groups = FALSE, layout = c(8, 5), 
+        aspect = 1, origin = 0, type = c("p", "h"), cex = 0.4,
+        xlab = "Proportion", par.settings=mytheme)
 ```
 
+```{r wildernessdotplot, echo=FALSE, display = TRUE, fig.caption="Proportion of Cover Type within each Wilderness Area", fig.align="center"}
+wilderness.table <- table(covtype$Cover_Type, covtype$Wilderness_Area_Agg)
+wilderness.table.freq <- prop.table(wilderness.table, 2)
+dotplot(wilderness.table.freq, groups = FALSE, layout = c(8, 5), 
+        aspect = 1, origin = 0, type = c("p", "h"), cex = 0.4,
+        xlab = "Proportion", par.settings=mytheme)
+```
 
 ## Model-Based EDA
 
@@ -175,9 +229,8 @@ Model-based exploratory data analysis allows us to glean additional information 
 
 ### Tree-based Classification Model
 
-
 ```{r rpartmodel, echo=FALSE, include = FALSE}
-treefit <- rpart(Cover_Type ~ ., method = "class", data = covtype.training)
+treefit <- rpart(Cover_Type ~ ., method = "class", data = covtype.training[,c(1:55)])
 ```
 
 ```{r rpartsummary, echo=FALSE, include = FALSE}
@@ -196,26 +249,16 @@ treefitCM <- confusionMatrix(data = predictions.vector, reference = covtype.trai
 treefitCM$overall["Accuracy"]
 ```
 
-```{r rpartplotvarimpt, echo = FALSE, display = TRUE, fig.height = 3, fig.width = 4, fig.cap = 'Classification Tree Variable Importance Plot', fig.align="center"}
+```{r rpartplotvarimpt, echo = FALSE, display = TRUE, fig.height = 3, fig.width = 4, fig.cap = 'Naive Classification Tree Variable Importance Plot', fig.align="center"}
 barplot(treefit$variable.importance[order(treefit$variable.importance)], 
         cex.names = 0.5, horiz = TRUE, cex.axis = 0.5, las=1)
 ```
 
-#### Figure 6: Classification tree 
-
-```{r rpartplot, echo = FALSE, display = TRUE, fig.height = 4.3, fig.aligh = "center"}
+```{r rpartplot, echo = FALSE, display = TRUE, fig.height = 4.3, fig.cap= "Naive Classification Tree", fig.aligh = "center"}
 rpart.plot(treefit, uniform=TRUE, extra=104, main="", cex = 0.7)
 ```
-  
 
-## K-means Clustering Placeholder
-
-```{r kmeans, echo=FALSE, include = FALSE}
-#comp <- data.frame(pcafit$x[,1:6])
-#kmeansfit1 <- kmeans(wine.norm[,2:14], 3)
-#kmeansfit2 <- kmeans(comp[,1:6], 3)
-```
-
+### Other Model-Based EDA?
 
 \pagebreak
 
@@ -309,5 +352,5 @@ Climatic Zone (first digit)     | Geologic Zones (second digit)
 8.  alpine                      | 8.  volcanic
 
 ``` {r }
-densityplot(~covtype$Elevation|covtype$Cover_Type, include=FALSE, results=FALSE)
+# densityplot(~covtype$Elevation|covtype$Cover_Type, include=FALSE, results=FALSE)
 ```
