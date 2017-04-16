@@ -33,9 +33,18 @@ library(ROCR)
 library(caret)
 library(e1071)
 library(MASS)
+library(plyr)
 library(dplyr)
+library(lubridate)
 library(randomForest)
 library(Boruta)
+library(data.table) # working with large files
+library(reshape2) #   used for melting 
+library(ggplot2)
+library(ggthemes)
+library(scales)
+library(GGally)
+library(gridExtra)
 ```
 
 ```{r theme, echo=FALSE}
@@ -166,7 +175,7 @@ covtype$Soil_Type <- factor(apply(covtype[, c(which(colnames(covtype) == "Soil_T
 
 An initial examination of the forest cover types in the provided data set shows that the most common types of cover are, by far, Lodgepole Pine (49% of records) and Spruce/Fir (36% of records). Other tree cover types are much rarer for the areas surveyed (<10% of records each) and therefore need to be oversampled in the training data set for building models using Artificial Neural Networks. Figure 2 shows a breakdown of the frequency of each cover type from the full data set.
 
-``` {r forestcoverbarplot, echo = FALSE, display = TRUE, fig.cap="Forest Cover Type Frequency", fig.align = "center"}
+``` {r forestcoverbarplot, echo = FALSE, display = TRUE, fig.cap="Forest Cover Type Frequency", fig.width = 2.5, fig.align = "center"}
 # frequency of forest cover types
 barchart(covtype$Cover_Type,  col = "grey", xlab = "Frequency")
 #prop.table(table(covtype$Cover_Type))
@@ -181,17 +190,16 @@ Elevation appears to be the most differentiating numeric variable across forest 
 
 ``` {r densityplots, echo=FALSE, display = TRUE, fig.cap = "Density plots of numeric variables", fig.aligh = "center"}
 # create density plot
-require(captioner)
 p=list()
 for(i in 1:10){
-    p[[i]] <- ggplot(covtype, aes_string(x=covtype[,i])) + 
+    p[[i]] <- ggplot(covtype, aes_string(x=colnames(covtype)[i])) + 
       geom_density() + 
       #theme_adMobile() + 
-      theme(axis.title.y=element_text(size=8,face="bold"),
-            axis.text=element_text(size=8))
+      theme(axis.title.y=element_blank(),
+              axis.title.x=element_text(size=6),
+              axis.text=element_text(size=6))
 }
-fig_nums("denseNumeric","Density Plot of Numeric Data")
-do.call(grid.arrange,c(p,top=eval(fig_nums("denseNumeric"))))
+do.call(grid.arrange,c(p,ncol=3))
 ```
 
 ```{r boxplots, echo=FALSE, display = TRUE, fig.cap = "Boxplots of numeric variables by Forest Cover Type", fig.width = 6.5, fig.height = 9, fig.aligh = "center"}
@@ -205,6 +213,8 @@ for (i in c(1:10)) {
     axis(2, las=1, at = 1:7, labels = levels(covtype$Cover_Type))
 }
 ```
+
+\pagebreak
 
 To understand the relationships between the numeric predictor variables, we can examine the plot in Figure X for important relationships.
 
@@ -223,14 +233,14 @@ corrplot(cor(covtype[,c(1:10)]),  method = "color", tl.col = "black",
          tl.cex = 0.5, cl.cex = 0.5)
 ```
 
-The scatterplots in Figure X help us examine these highly correlated variables more closely. From the plots, we observe the following: 
-* The hillshade at noon and 3pm creates an elipsoid pattern. 
-* As the horizontal distance to a hydrology increases, the variance in vertical distance to hydrology increases. 
-* As slope increases hillshade at noon decreases, with wider variance at steeper slopes. 
-* Hillshade at 3pm has a sigmoid relationship with Aspect. 
-* Aspect and Hillshade at 9am have a more defined sigmoid relationship. 
+The scatterplots in Figure 5 help us examine these highly correlated variables more closely. From the plots, we observe the following: 
+*   The hillshade at noon and 3pm creates an elipsoid pattern. 
+*   As the horizontal distance to a hydrology increases, the variance in vertical distance to hydrology increases. 
+*   As slope increases hillshade at noon decreases, with wider variance at steeper slopes. 
+*   Hillshade at 3pm has a sigmoid relationship with Aspect. 
+*   Aspect and Hillshade at 9am have a more defined sigmoid relationship. 
 
-``` {r scatterplots, echo=FALSE, display = TRUE, fig.caption = "Scatterplots of Highly Correlated Numeric Variables, fig.align = "center"}
+``` {r scatterplots, echo=FALSE, display = TRUE, fig.caption = "Scatterplots of Highly Correlated Numeric Variables", fig.align = "center"}
 corrFeature1<-c("Hillshade_Noon","Hillshade_9am","Horizontal_Distance_To_Hydrology","Slope","Aspect","Aspect","Elevation")
 corrFeature2<-c("Hillshade_3pm","Hillshade_3pm","Vertical_Distance_To_Hydrology","Hillshade_Noon","Hillshade_9am","Hillshade_3pm","Horizontal_Distance_To_Roadways")
 
@@ -239,10 +249,11 @@ scatterTemp <- sample_n(covtype,5000)
 
 p=list()
 for(i in 1:length(corrFeature1)){
-    p[[i]] <- ggplot(scatterTemp, aes_string(x=corrFeature1[i],y=corrFeature2[i])) 
-    + geom_point(alpha=1/10) 
-    + theme(axis.title.y=element_text(size=8,face="bold"),
-            axis.text=element_text(size=8)
+    p[[i]] <- ggplot(scatterTemp, aes_string(x=corrFeature1[i],y=corrFeature2[i])) +
+        geom_point(alpha=1/10) +
+        theme(axis.title.y=element_text(size=6),
+              axis.title.x=element_text(size=6),
+              axis.text=element_text(size=6))
 }
 do.call(grid.arrange,c(p,ncol=2))
 ```
@@ -261,11 +272,12 @@ ggplot(data=covtype) +
   theme(legend.position= "bottom")
 ```
 
-A dot plot of forest cover type by wilderness area shows the following trends:
-* Wilderness Area 1 has a higher proportion of Lodgepole Pines than any of the other areas.  
-* Wilderness Area 2 has a higher proportion of Spruce/Fir and Krumholz trees than any of the other areas.  
-* Wilderness Area 3 has a higher proportion of Aspens than any of the other areas.  
-* Wilderness Area 4 has a higher proportion of Ponderosa Pines, Douglas Firs, and Cottonwood/Willow trees than any of the other areas.  
+A dot plot of forest cover type by wilderness area in Figure 6 shows the following trends:  
+
+*   Wilderness Area 1 has a higher proportion of Lodgepole Pines than any of the other areas.  
+*   Wilderness Area 2 has a higher proportion of Spruce/Fir and Krumholz trees than any of the other areas.  
+*   Wilderness Area 3 has a higher proportion of Aspens than any of the other areas.  
+*   Wilderness Area 4 has a higher proportion of Ponderosa Pines, Douglas Firs, and Cottonwood/Willow trees than any of the other areas.  
 
 ```{r wildernessdotplot, echo=FALSE, display = TRUE, fig.caption="Proportion of Cover Type within each Wilderness Area", fig.align="center"}
 wilderness.table <- table(covtype$Cover_Type, covtype$Wilderness_Area)
@@ -275,7 +287,7 @@ dotplot(wilderness.table.freq, groups = FALSE, layout = c(4,1),
         xlab = "Proportion", par.settings=mytheme)
 ```
 
-A dot plot of forest cover type by soil type also shows variability in the proportion of tree types from soil to soil. For example, some soil types show a very high proportion of Lodgepole Pines (e.g. Soil Type 7) whereas others show a very low proportion of Lodgepole Pines (e.g. Soil Type 37). The distinctive make-up of trees by soil type suggests that this may be a good predictive factor for our models. 
+A dot plot of forest cover type by soil type in Figure 7 also shows variability in the proportion of tree types from soil to soil. For example, some soil types show a very high proportion of Lodgepole Pines (e.g. Soil Type 7) whereas others show a very low proportion of Lodgepole Pines (e.g. Soil Type 37). The distinctive make-up of trees by soil type suggests that this may be a good predictive factor for our models. 
 
 ```{r soildotplot, echo=FALSE, display = TRUE, fig.caption="Proportion of Forest Cover by Soil Type", fig.align="center"}
 soil.table <- table(covtype$Cover_Type, covtype$Soil_Type)
@@ -318,12 +330,14 @@ Model-based exploratory data analysis allows us to glean additional information 
 
 By creating a simple tree-based classification model, we confirm that Elevation is the most important predictor of forest cover type. 
 
-Other variables that could be important to defining models are shown in the variable importance plot in Figure X.
-```{r rpartmodel, echo=FALSE, include = FALSE}
+Other variables that could be important to defining models are shown in the variable importance plot in Figure 8.
+
+```{r rpartmodel, eval = FALSE, echo=FALSE, include = FALSE}
 treefit <- rpart(Cover_Type ~ ., method = "class", data = covtype.training[c(1:55)])
+treefit <- treefit
 ```
 
-```{r rpartsummary, echo=FALSE, include = FALSE}
+```{r rpartsummary, eval = FALSE, echo=FALSE, include = FALSE}
 printcp(treefit) # display the results 
 plotcp(treefit) # visualize cross-validation results 
 summary(treefit) # detailed summary of splits
@@ -339,43 +353,44 @@ treefitCM <- confusionMatrix(data = predictions.vector, reference = covtype.trai
 treefitCM$overall["Accuracy"]
 ```
 
-```{r rpartplotvarimpt, echo = FALSE, display = TRUE, fig.height = 2.5, fig.width = 4, fig.cap = 'Naive Classification Tree Variable Importance Plot', fig.align="center"}
+```{r rpartplotvarimpt, eval = FALSE, echo = FALSE, display = TRUE, fig.height = 2.5, fig.width = 4, fig.cap = 'Naive Classification Tree Variable Importance Plot', fig.align="center"}
 barplot(treefit$variable.importance[order(treefit$variable.importance)], 
         cex.names = 0.5, horiz = TRUE, cex.axis = 0.5, las=1)
 ```
 
 A plot of the decision tree shows that this model has significant limitations and ignores the rarer tree types in partitioning the data. With an accuracy of only 7%, we learn that a much more sophisticated model will be required to predict cover type.
 
-```{r rpartplot, echo = FALSE, display = FALSE, fig.height = 4.3, fig.cap= "Naive Classification Tree", fig.aligh = "center"}
+```{r rpartplot, eval = FALSE, echo = FALSE, display = FALSE, fig.height = 4.3, fig.cap= "Naive Classification Tree", fig.aligh = "center"}
 rpart.plot(treefit, uniform=TRUE, extra=104, main="", cex = 0.7)
 ```
 
 ### Random Forest Model
 
-According to the importance plot for a random forest model, the elevation variable has the higest importance, followed by soil type, the horizontal distance to roadways, and the horizontal distance to wildfire points.
+According to the importance plot for a random forest model, the elevation variable has the higest importance, followed by soil type, the horizontal distance to roadways, and the horizontal distance to wildfire points. Figure 9 shows the ranking and relative importance of the variables selected.
 
-``` {r randomforest, echo = FALSE, display = FALSE}
-# use a sample of the data for the rf calculation as it takes long time
+``` {r randomforest, eval = FALSE, echo = FALSE, display = FALSE}
+use a sample of the data for the rf calculation as it takes long time
 sampleIndex <- createDataPartition(covtype$Cover_Type, p = .1, list = FALSE, times = 1)
+comment out for knit
 rf<- randomForest(Cover_Type~. ,covtype[sampleIndex,c(1:10,55:57)], importance.type = 1)
 importance(rf)
 ```
 
 ``` {r randomforestimpt, echo = FALSE, display = TRUE, fig.cap = 'Random Forest Variable Importance Plot', fig.align="center"}
-# accuracy, discrete target
+rf <- rf
 varImpPlot(rf,type=2, main = "")
 ```
 
 ### Boruta Model
 
-According to the boruta algorithm for feature selection, elevation has the higest importance, but the second highest is different from the random forest importance index. 
+According to the boruta algorithm for feature selection, elevation, again, has the highest importance. *[Add comments on variable importance here after running algorithm -- couldn't get results on Christina's machine.]*
 
 ``` {r boruta, echo = FALSE, display = FALSE}
-# Boruta Model
-bor.results <- Boruta(covtype.training, covtype.training$Cover_Type, maxRuns=200)
+# Boruta Model - comment out for knit
+# bor.results <- Boruta(covtype.training, covtype.training$Cover_Type, maxRuns=200)
 ```
 
-``` {r borutaplot, echo = FALSE, display = FALSE, fig.cap = 'Boruta Algorithm Variable Importance Plot', fig.align="center"}
+``` {r borutaplot, echo = FALSE, display = FALSE, eval = FALSE}
 # Boruta Model
 plot(bor.results)
 names(bor.results)
@@ -389,11 +404,12 @@ Boruta_output <- attStats(bor.results)
 
 # Next Steps for our Paper
 
-* Reach final agreement on sampling approach (i.e. sample randomly across the full dataset vs. sample randomly within each forest cover type category).
-* Begin building models four to five possible models using Artificial Neural Networks, SVMs, Lasso, and Ridge Regression.
-* Figure out how to properly do citations in R Markdown.
-* Continue refining introduction to align with results from the modeling process.
-* Begin writing for additional sections of the paper.
+* Reach final agreement on sampling approach (i.e. sample randomly across the full dataset vs. sample randomly within each forest cover type category).  
+* Begin building models four to five possible models using Artificial Neural Networks, SVMs, Lasso, and Ridge Regression.  
+* Figure out how to properly do citations in R Markdown.  
+* Continue refining introduction to align with results from the modeling process.  
+* Begin writing for additional sections of the paper.  
+* Continue to revise EDA -- include only what's most important once modeling is complete.  
 
 \pagebreak
 
@@ -477,3 +493,126 @@ Climatic Zone (first digit)     | Geologic Zones (second digit)
 6.  montane and subalpine       | 6.  unspecified in the USFS ELU Survey
 7.  subalpine                   | 7.  igneous and metamorphic
 8.  alpine                      | 8.  volcanic
+
+## Appendix B: Additional EDA
+
+``` {r richard, echo = FALSE, eval = FALSE}
+# from Richard
+
+covtypeS <-covtype[0,]
+ 
+covtypeS <-  rbind(covtypeS,covtype[sample(which(covtype$Cover_Type == "Lodgepole Pine"),50),])
+ 
+covtypeS <- rbind(covtypeS, covtype[sample(which(covtype$Cover_Type == "Spruce/Fir"),50),])
+covtypeS <- rbind(covtypeS, covtype[sample(which(covtype$Cover_Type == "Ponderosa Pine"),50),])
+covtypeS <- rbind(covtypeS, covtype[sample(which(covtype$Cover_Type ==  "Cottonwood/Willow"),50),])
+covtypeS <- rbind(covtypeS, covtype[sample(which(covtype$Cover_Type == "Aspen"),50),])
+covtypeS <- rbind(covtypeS, covtype[sample(which(covtype$Cover_Type == "Douglas-fir"),50),])
+covtypeS <- rbind(covtypeS, covtype[sample(which(covtype$Cover_Type == "Krummholz"),50),])
+colnames(covtypeS)[colnames(covtypeS)=="Horizontal_Distance_To_Hydrology"] <- "HD2H"
+colnames(covtypeS)[colnames(covtypeS)=="Vertical_Distance_To_Hydrology"] <- "VD2H"
+colnames(covtypeS)[colnames(covtypeS)=="Horizontal_Distance_To_Roadways"] <- "HD2RW"
+colnames(covtypeS)[colnames(covtypeS)=="Horizontal_Distance_To_Fire_Points"] <- "HD2FP"
+splom(covtypeS[,1:10], groups=covtypeS$Cover_Type,pscales = 0,cex = 0.5)
+```
+
+```{r datastep2, include=FALSE, results=FALSE, eval = FALSE}
+# from Kent
+sapply(covtype,function(x)any(is.na(x))) #no missing values
+
+#taking a look at the counts for the cover types
+set.seed(42)
+limit.rows <- 250000
+covtype <- covtype[sample(nrow(covtype),limit.rows),]
+table(covtype$Cover_Type)
+
+covtype <- covtype %>%
+  gather(key=Region, value=region.indicator,Wilderness_Area1:Wilderness_Area4)%>%
+  filter(region.indicator==1) %>%
+  select(-region.indicator)
+covtype$Region <- ifelse(covtype$Region=="Wilderness_Area1","Rawah",
+                        ifelse(covtype$Region=="Wilderness_Area2","Neota",
+                        ifelse(covtype$Region=="Wilderness_Area3","Comanche Peak", 
+                               "Cache la Poudre")))
+covtype$Region <- as.factor(covtype$Region)
+covtype$Cover_Type <- as.character(covtype$Cover_Type)
+covtype$Cover_Type <- ifelse(covtype$Cover_Type==1,"Spruce/Fir",
+                        ifelse(covtype$Cover_Type==2,"Lodgepole Pine",
+                        ifelse(covtype$Cover_Type==3,"Ponderosa Pine",
+                        ifelse(covtype$Cover_Type==4,"Cottonwood/Willow ",
+                        ifelse(covtype$Cover_Type==5,"Aspen ",
+                        ifelse(covtype$Cover_Type==6,"Douglas-fir ",
+                                        "Krummholz"))))))
+covtype <- covtype %>%
+  gather(key=Soil, value=soil.indicator,Soil_Type1:Soil_Type40)%>%
+  filter(soil.indicator==1) %>%
+  select(-soil.indicator)
+covtype$Cover_Type <- as.factor(covtype$Cover_Type)
+
+#Coverage type by soil region
+ggplot(data=covtype) +
+  geom_bar(aes(x=Cover_Type,fill=Cover_Type),color="black") + 
+  facet_wrap(~Soil,scale="free") +
+  theme_bw() +
+  xlab("Count") + 
+  ylab("Tree Cover Type") + 
+  ggtitle("Coverage Type vs Region")+
+  theme(axis.text=element_blank()) + 
+  theme(legend.position= "bottom")
+
+#coverage type by the four regions
+ggplot(data=covtype) +
+  geom_bar(aes(x=Cover_Type),fill="#66CC99",color="black") + 
+  facet_wrap(~Region) +
+  coord_flip() +
+  theme_bw() +
+  xlab("Count") + 
+  ylab("Tree Cover Type") + 
+  ggtitle("Coverage Type vs Region")
+
+#elevation vs slope color coded by cover type
+ggplot(data=covtype) +
+  geom_point(aes(x=Slope,
+                 y=Elevation,
+                 color=Cover_Type
+                ),alpha=0.5) + 
+  theme_bw() + 
+  ylab("Elevation") +
+  xlab("Slope") +
+  guides(color = guide_legend(title = "Cover Type")) + 
+  theme(legend.position= "bottom") + 
+  scale_color_brewer(palette = "Set3")
+
+#looking at aspect
+covtype <- covtype %>%
+  gather(key=Shade.Type, value=Index, Hillshade_9am:Hillshade_3pm)
+
+
+ggplot(data=covtype) +
+    geom_point(aes(x=Index,
+                 y=Aspect,
+                 color=Cover_Type
+                ),alpha=0.5) + 
+  facet_grid(Cover_Type~Shade.Type) +
+  theme_bw() + 
+  ylab("Aspect") +
+  xlab("Shade Index") +
+  guides(color = guide_legend(title = "Cover Type")) + 
+  theme(legend.position= "bottom") + 
+  scale_color_brewer(palette = "Set3")
+
+#looking at distance/proximity measures
+ggplot(data=covtype) +
+  geom_point(aes(x=Horizontal_Distance_To_Hydrology,
+                 y=Horizontal_Distance_To_Roadways,
+                 color=Cover_Type
+                ),alpha=0.5) + 
+  theme_bw() + 
+  ylab("Horizontal_Distance_To_Roadways") +
+  xlab("Horizontal_Distance_To_Hydrology") +
+  guides(color = guide_legend(title = "Cover Type")) + 
+  theme(legend.position= "bottom") + 
+  scale_color_brewer(palette = "Set3")
+
+
+```
